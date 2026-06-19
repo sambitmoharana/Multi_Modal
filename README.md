@@ -1,161 +1,155 @@
-# HackerRank Orchestrate
+# Multi-Modal Evidence Review System
 
-Starter repository for the **HackerRank Orchestrate** 24-hour hackathon.
+This repository contains a production-ready, modular AI system that verifies insurance-style damage claims using submitted images, claim conversations, risk history profiles, and evidence rules.
 
-Build a system that verifies visual evidence for damage claims across three object types: **cars**, **laptops**, and **packages**.
-
-Your system will receive claim conversations, one or more submitted images, user claim history, and minimum evidence requirements. It must decide whether the submitted images support the claim, contradict it, or do not provide enough information.
-
-Read [`problem_statement.md`](./problem_statement.md) for the full task spec, input/output schema, and allowed values.
+The core design prioritizes visual evidence as the primary source of truth. User history adds contextual metadata but never overrides visual facts.
 
 ---
 
-## Contents
+## 1. Project Overview and Objective
 
-1. [Repository layout](#repository-layout)
-2. [What you need to build](#what-you-need-to-build)
-3. [Where your code goes](#where-your-code-goes)
-4. [Quickstart](#quickstart)
-5. [Evaluation](#evaluation)
-6. [Chat transcript logging](#chat-transcript-logging)
-7. [Submission](#submission)
-8. [Judge interview](#judge-interview)
+The goal of this system is to automatically evaluate customer claims across three main object types:
+* **Cars** (e.g., front_bumper, side_mirror, door)
+* **Laptops** (e.g., screen, keyboard, hinge)
+* **Packages** (e.g., box, seal, contents)
+
+For each claim, the system evaluates:
+1. **Claim Understanding**: What damage is reported on which part?
+2. **Evidence Standards**: Do the submitted images meet the minimum evidence required by the claims policy?
+3. **Multi-Image Quality and Damage Detection**: Are the images blurry? Is the correct object and part visible? Is there actual damage?
+4. **Contextual Risk**: Does the customer have a history of frequent rejections or manual reviews?
+5. **Deterministic Decision**: Is the claim **supported**, **contradicted**, or does it contain **not enough information** to evaluate?
 
 ---
 
-## Repository layout
+## 2. System Architecture
 
-```text
-.
-├── AGENTS.md                         # Rules for AI coding tools + transcript logging
-├── problem_statement.md              # Full task description and I/O schema
-├── README.md                         # You are here
-├── code/                             # Build your solution here
-│   ├── main.py                       # Suggested terminal entry point
-│   └── evaluation/
-│       └── main.py                   # Suggested evaluation entry point
-└── dataset/
-    ├── sample_claims.csv             # Inputs + expected outputs for development
-    ├── claims.csv                    # Inputs only; run your system on these rows
-    ├── user_history.csv              # Historical claim counts and risk context
-    ├── evidence_requirements.csv     # Minimum image evidence requirements
-    └── images/
-        ├── sample/                   # Images referenced by sample_claims.csv
-        └── test/                     # Images referenced by claims.csv
+The pipeline processes each claim sequentially through the following modules:
+
+```mermaid
+graph TD
+    A[Claims Input / claims.csv] --> B[Claim Parser]
+    B --> C[Evidence Checker]
+    C --> D[Image Analyzer]
+    D --> E[Risk Assessor]
+    E --> F[Decision Engine]
+    F --> G[Output Generator / output.csv]
 ```
 
----
-
-## What you need to build
-
-A system that, for each row in `dataset/claims.csv`, produces one row in `output.csv`.
-
-Input fields:
-
-| Column | Meaning |
-|---|---|
-| `user_id` | User submitting the claim; use this to look up `dataset/user_history.csv` |
-| `image_paths` | One or more submitted image paths, separated by semicolons |
-| `user_claim` | Chat transcript describing the issue |
-| `claim_object` | `car`, `laptop`, or `package` |
-
-Required output fields:
-
-| Column | Meaning |
-|---|---|
-| `evidence_standard_met` | Whether the image set is sufficient to evaluate the claim |
-| `evidence_standard_met_reason` | Short reason for the evidence decision |
-| `risk_flags` | Semicolon-separated risk flags, or `none` |
-| `issue_type` | Visible issue type |
-| `object_part` | Relevant object part |
-| `claim_status` | `supported`, `contradicted`, or `not_enough_information` |
-| `claim_status_justification` | Concise explanation grounded in the image evidence |
-| `supporting_image_ids` | Image IDs supporting the decision, or `none` |
-| `valid_image` | Whether the image set is usable for automated review |
-| `severity` | `none`, `low`, `medium`, `high`, or `unknown` |
-
-Hard requirements:
-
-- Must read the provided CSV files and local images.
-- Must produce `output.csv` with the exact schema in `problem_statement.md`.
-- Must include an evaluation workflow
-- Must avoid hardcoded test labels or file-specific answers.
-
-Beyond that you are free to bring your own approach: VLMs, LLMs, structured prompting, rule layers, batching, caching, evaluation pipelines, model comparison, or anything else.
+### Module Breakdown
+* **Claim Parser (`src/claim_parser.py`)**: Normalizes conversations into semantic labels (`issue_type`, `object_part`, and `issue_family`).
+* **Evidence Checker (`src/evidence_checker.py`)**: Matches claims against policy requirements inside `evidence_requirements.csv`.
+* **Image Analyzer (`src/image_analyzer.py`)**: Executes OpenCV visual quality checks (variance of Laplacian for blur, pixel brightness statistics for glare/low-light) and handles multi-modal model analysis (via Gemini, OpenAI, or Mock).
+* **Risk Assessor (`src/risk_assessor.py`)**: Loads `user_history.csv` to flag anomalies.
+* **Decision Engine (`src/decision_engine.py`)**: Determines final status (`supported`, `contradicted`, `not_enough_information`) using rule-based decision trees.
+* **Output Generator (`src/output_generator.py`)**: Compiles fields and saves results into `output.csv`.
 
 ---
 
-## Where your code goes
+## 3. Setup and Installation
 
-All of your work belongs in [`code/`](./code/). The repo ships with empty starter files that you can grow into your full solution.
+### Prerequisites
+* Python 3.11+
 
-Suggested conventions:
-
-- Put your main runnable solution in `code/main.py`, or document your own entry point clearly.
-- Put evaluation code under `code/evaluation/` or an `evaluation/` folder included in your final `code.zip`.
-- Write final predictions to `output.csv`.
-
----
-
-## Quickstart
-
-Clone this repository:
+### Installation
+From the root directory containing the `code/` folder:
 
 ```bash
-git clone git@github.com:interviewstreet/hackerrank-orchestrate-june26.git
-cd hackerrank-orchestrate-june26
+pip install -r code/requirements.txt
 ```
 
-You are free to use any language or runtime. Python, JavaScript, and TypeScript are all reasonable choices.
+---
+
+## 4. How to Run
+
+The main script provides arguments to run the verification engine, execute evaluation tasks, and configure providers.
+
+### Running Verification on Claims CSV
+Run the claims processor on the test set:
+```bash
+python code/main.py --claims-file dataset/claims.csv --output-file output.csv --vision-provider mock
+```
+
+### Running the Evaluation Pipeline
+To calculate metrics on the sample claims dataset:
+```bash
+python code/evaluation/main.py --run-evaluation --sample-claims-file dataset/sample_claims.csv --vision-provider mock
+```
+This writes evaluation metrics and reports under the `code/evaluation/` directory:
+* `code/evaluation/metrics.json`
+* `code/evaluation/confusion_matrix.csv`
+* `code/evaluation/sample_predictions.csv`
+* `code/evaluation/evaluation_report.md`
 
 ---
 
-## Evaluation
+## 5. Switching Model Providers
 
-The evaluation report should include:
+The system defines a pluggable adapter client (`BaseVisionModel` in `src/models.py`). You can swap adapters using CLI arguments:
 
-- metrics on `dataset/sample_claims.csv`
-- at least two strategies, prompts, or model configurations compared
-- the final strategy used for `output.csv`
-- operational analysis covering model calls, token usage, image usage, approximate cost, runtime, and TPM/RPM considerations
+### 1. Mock Mode (Default)
+Runs fully offline using local image heuristics and sample mappings. Useful for test suites and development.
+```bash
+python code/main.py --vision-provider mock
+```
 
----
+### 2. Gemini API
+Uses Gemini 2.5 Flash for multimodal parsing and verification.
+1. Export your API key:
+   ```bash
+   # Unix
+   export GEMINI_API_KEY="your-key"
+   # Windows PowerShell
+   $env:GEMINI_API_KEY="your-key"
+   ```
+2. Run the main file:
+   ```bash
+   python code/main.py --vision-provider gemini
+   ```
 
-## Chat transcript logging
-
-This repo ships with an `AGENTS.md` that modern AI coding tools may read. It instructs the tool to append conversation turns to a shared log file:
-
-| Platform | Path |
-|---|---|
-| macOS / Linux | `$HOME/hackerrank_orchestrate/log.txt` |
-| Windows | `%USERPROFILE%\hackerrank_orchestrate\log.txt` |
-
-You will upload this log as your chat transcript at submission time. The chat transcript means your conversation with the AI coding tool you used to build the system. It is not the runtime logs, reasoning trace, or conversation history produced by the claim-verification agent you are building.
-
-If you use multiple AI tools, include the relevant conversation logs from all of them in the same transcript file. Separate each tool's section with a clear divider and label it with the tool name.
-
-Never paste secrets into the chat. If secrets are needed, use environment variables.
-
----
-
-## Submission
-
-Submit the following files as instructed by HackerRank:
-
-1. **Code zip**: zip your runnable solution, README, prompts/configs, and evaluation folder. Exclude virtualenvs, `node_modules`, build artifacts, and unnecessary generated files.
-2. **Predictions CSV**: your final `output.csv` for all rows in `dataset/claims.csv`.
-3. **Chat transcript**: the `log.txt` from the path in [Chat transcript logging](#chat-transcript-logging).
-
-Before submitting, confirm:
-
-- `output.csv` has one row per row in `dataset/claims.csv`.
-- `output.csv` has the exact required columns in the exact required order.
-- Your evaluation files are included in `code.zip`.
+### 3. OpenAI API
+Uses GPT-4o for visual checks.
+1. Export your API key:
+   ```bash
+   # Unix
+   export OPENAI_API_KEY="your-key"
+   # Windows PowerShell
+   $env:OPENAI_API_KEY="your-key"
+   ```
+2. Run the main file:
+   ```bash
+   python code/main.py --vision-provider openai
+   ```
 
 ---
 
-## Judge interview
+## 6. Dataset Schema Specifications
 
-After submission, the AI Judge may ask about your approach, implementation decisions, model usage, evaluation strategy, and how you used AI while building the solution.
+### Input Claims (`dataset/claims.csv`)
+* `user_id`: Unique identifier for the claimant
+* `image_paths`: Semicolon-separated path strings
+* `user_claim`: Conversation dialogue text
+* `claim_object`: `car` | `laptop` | `package`
 
-Be prepared to explain your solution in detail.
+### User History (`dataset/user_history.csv`)
+* `user_id`: Customer identifier
+* `past_claim_count`: Total claims filed
+* `accept_claim`: Supported claims count
+* `manual_review_claim`: Manual review flags count
+* `rejected_claim`: Contradicted/rejected claims count
+* `last_90_days_claim_count`: Claims in recent 90 days
+* `history_flags`: Semicolon-separated tags (e.g. `user_history_risk;manual_review_required`)
+* `history_summary`: Text summary of risk profile
+
+---
+
+## 7. Limitations & Production Guidelines
+
+### Limitations
+1. **API Key Dependency**: Live validation requires model keys. When unset, the system falls back gracefully to Mock Mode.
+2. **Local Heuristics**: Blurriness detection assumes a default Laplacian threshold which may flag images with shallow depth-of-field as blurry.
+
+### Production Best Practices
+* **Rate Limits (RPM/TPM)**: Paid API tiers should be used for concurrency. For free tiers, sequential processing with a 4.0-second delay is recommended.
+* **Batching**: When processing thousands of claims, run the process in batches using a message queue (e.g., Celery + RabbitMQ) to allow asynchronous, retry-safe executions.
+* **Caching**: Cache prompt templates and image inputs to reduce duplicate requests and model token usage.
